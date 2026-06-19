@@ -202,7 +202,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'enrich_document',
-      description: 'AI-обогащение: извлечь сущности + факты, авто-создать связи. Требует ANTHROPIC_API_KEY',
+      description: 'AI-обогащение ОДНОГО документа: извлечь сущности и факты, предложить связи с другими. ' +
+        'Требует OLLAMA_HOST (приоритетно) или ANTHROPIC_API_KEY (fallback). ' +
+        'Если нужно связать ВСЕ документы коллекции/базы сразу — используй auto_link_collection, а не вызывай этот инструмент по одному для каждого документа в цикле.',
       inputSchema: {
         type: 'object', required: ['doc_id'],
         properties: {
@@ -223,7 +225,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'find_related',
-      description: 'Найти похожие документы по пересечению сущностей (Jaccard)',
+      description: 'Найти документы, похожие на ОДИН конкретный документ (по пересечению сущностей, Jaccard). ' +
+        'Если пользователь просит связать/построить граф для ВСЕХ документов сразу — используй auto_link_collection вместо цикла по этому инструменту.',
       inputSchema: {
         type: 'object', required: ['doc_id'],
         properties: {
@@ -231,6 +234,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           top_n:       { type: 'number', default: 5 },
           min_jaccard: { type: 'number', default: 0.05 },
           auto_link:   { type: 'boolean', default: false, description: 'Авто-создать слабые связи' },
+        },
+      },
+    },
+    {
+      name: 'auto_link_collection',
+      description: 'Массово установить связи между документами ОДНИМ вызовом. ' +
+        'Вызывай это, когда пользователь просит "свяжи все документы", "установи связи между всеми файлами", ' +
+        '"построй граф" — НЕ нужно вызывать enrich_document или find_related по очереди для каждого документа. ' +
+        'Если у документов ещё нет извлечённых сущностей, инструмент сам обогатит их через AI (Ollama/Anthropic) ' +
+        'перед тем как искать связи — это решает частую ситуацию "0 связей", когда документы просто никогда не обогащались.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          collection:  { type: 'string', description: 'Только эта коллекция (все документы базы если не задано)' },
+          use_ai:      { type: 'boolean', default: true,
+                         description: 'Обогащать документы без сущностей через AI перед связыванием. Выключи, если сущности уже есть или AI-backend не настроен' },
+          min_jaccard: { type: 'number', default: 0.1, description: 'Порог схожести для авто-связей (0–1)' },
         },
       },
     },
@@ -523,6 +543,67 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
           shared_entities: s.shared.slice(0, 10),
         })),
         ...(a.auto_link ? { auto_linked: linked } : {}),
+      });
+    }
+
+    // ── auto_link_collection ─────────────────────────────────────────────────
+    // Решает ровно ту ситуацию, где модель не смогла спланировать цикл
+    // "обогатить каждый документ → найти связи" сама — делаем это одним вызовом.
+    if (name === 'auto_link_collection') {
+      const collection = a.collection as string | undefined;
+      const useAi       = a.use_ai !== false; // по умолчанию true
+      const minJaccard  = (a.min_jaccard as number) ?? 0.1;
+
+      const docs = docDb.list({ collection, limit: 10_000 }).items;
+      if (docs.length < 2) {
+        return txt({
+          ok: true,
+          message: 'Недостаточно документов для связывания (нужно минимум 2)',
+          docs_count: docs.length,
+        });
+      }
+
+      // Шаг 1: обогащаем документы, у которых пока нет сущностей —
+      // без этого Jaccard-сравнение не с чем считать (это и есть причина "0 связей")
+      let enriched = 0, enrich_errors = 0;
+      if (useAi) {
+        for (const doc of docs) {
+          if (graphDb.getDocEntities(doc.id).length === 0) {
+            try {
+              await enrichDocument(doc.id, graphDb, { maxContextDocs: docs.length });
+              enriched++;
+            } catch (e) {
+              enrich_errors++;
+            }
+          }
+        }
+      }
+
+      // Шаг 2: авто-связи по сущностям для каждого документа
+      const allConnections: { from: string; from_title: string; to: string; to_title: string; relation: string; strength: number }[] = [];
+      const titleById = new Map(docs.map(d => [d.id, d.title]));
+
+      for (const doc of docs) {
+        const created = graphDb.autoConnectByEntities(doc.id, { minJaccard });
+        for (const c of created) {
+          allConnections.push({
+            from: doc.id, from_title: doc.title,
+            to: c.to_id, to_title: titleById.get(c.to_id) ?? c.to_id,
+            relation: c.relation, strength: +c.strength.toFixed(3),
+          });
+        }
+      }
+
+      return txt({
+        ok: true,
+        docs_processed:      docs.length,
+        enriched_now:        enriched,
+        enrich_errors,
+        connections_created: allConnections.length,
+        connections:         allConnections.slice(0, 50),
+        ...(allConnections.length === 0 ? {
+          hint: 'Связей не найдено даже после обогащения — возможно, документы действительно не пересекаются по темам/сущностям. Попробуй снизить min_jaccard.',
+        } : {}),
       });
     }
 

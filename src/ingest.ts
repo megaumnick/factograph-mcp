@@ -28,6 +28,16 @@ const EXT_CONTENT_TYPE: Record<string, ContentType> = {
 
 export const SUPPORTED_EXT = new Set(Object.keys(EXT_CONTENT_TYPE));
 
+/**
+ * Файл можно прочитать, если у него известное расширение из EXT_CONTENT_TYPE,
+ * либо расширения нет вовсе. Дампы технической документации (как у тебя — install core,
+ * multiapn и т.п.) часто приходят без расширений — такие файлы трактуются как обычный текст,
+ * а не отбрасываются.
+ */
+export function isIngestable(ext: string): boolean {
+  return ext === '' || SUPPORTED_EXT.has(ext);
+}
+
 // ─── Динамические экстракторы (pdf-parse / mammoth необязательны) ─────────────
 
 async function extractPdf(buf: Buffer): Promise<{ text: string; pages: number; title?: string }> {
@@ -116,10 +126,10 @@ export async function ingestFile(
   const ext  = extname(safe).toLowerCase();
   const stem = basename(safe, ext);
 
-  if (!existsSync(safe))     throw new Error(`Файл не найден: ${safe}`);
-  if (!SUPPORTED_EXT.has(ext)) {
+  if (!existsSync(safe))   throw new Error(`Файл не найден: ${safe}`);
+  if (!isIngestable(ext)) {
     throw new Error(
-      `Формат не поддерживается: ${ext}\nПоддерживаются: ${[...SUPPORTED_EXT].join(' ')}`
+      `Формат не поддерживается: ${ext}\nПоддерживаются: ${[...SUPPORTED_EXT].join(' ')}, а также файлы без расширения (читаются как обычный текст)`
     );
   }
 
@@ -152,17 +162,18 @@ export async function ingestFile(
     title:        opts.title ?? autoTitle ?? stem,
     source:       safe,
     source_type:  'file',
-    content_type: opts.content_type ?? EXT_CONTENT_TYPE[ext] ?? 'other',
+    content_type: opts.content_type ?? EXT_CONTENT_TYPE[ext] ?? (ext === '' ? 'note' : 'other'),
     content,
     summary:      autoSummary(content),
     tags:         opts.tags ?? [],
     collection:   opts.collection ?? null,
     metadata: {
-      file_path:   safe,
-      extension:   ext,
-      size_bytes:  fileStat.size,
-      modified_at: fileStat.mtime.toISOString(),
-      word_count:  content.split(/\s+/).filter(Boolean).length,
+      file_path:     safe,
+      extension:     ext,
+      no_extension:  ext === '',
+      size_bytes:    fileStat.size,
+      modified_at:   fileStat.mtime.toISOString(),
+      word_count:    content.split(/\s+/).filter(Boolean).length,
       ...extraMeta,
     },
     pinned_at:  now,
@@ -207,7 +218,10 @@ export async function collectFiles(
         ok.push(...sub.ok); skip.push(...sub.skip);
       } else if (e.isFile()) {
         const ext = extname(e.name).toLowerCase();
-        const supported = SUPPORTED_EXT.has(ext) && (!extFilter || extFilter.has(ext));
+        // Без явного фильтра расширений: подхватываем известные форматы + файлы без
+        // расширения (как текст). С явным фильтром extensions — только точное совпадение,
+        // чтобы пользователь полностью контролировал, что попадёт в массовый импорт.
+        const supported = extFilter ? extFilter.has(ext) : isIngestable(ext);
         if (supported) ok.push(full); else skip.push(full);
       }
     }

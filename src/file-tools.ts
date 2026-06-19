@@ -254,7 +254,7 @@ export async function handleFileOrGraphTool(
   if (name === 'list_server_files') {
     const { readdir, stat } = await import('fs/promises');
     const { join, extname } = await import('path');
-    const { SUPPORTED_EXT } = await import('./ingest.js');
+    const { isIngestable } = await import('./ingest.js');
 
     const dirPath    = args.path as string;
     const extFilter  = args.extensions
@@ -272,7 +272,7 @@ export async function handleFileOrGraphTool(
       return {
         name: e.name, type: 'file', path: full, ext,
         size_kb:   s ? +(s.size / 1024).toFixed(1) : null,
-        supported: SUPPORTED_EXT.has(ext),
+        supported: isIngestable(ext),
       };
     }));
 

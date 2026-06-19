@@ -286,8 +286,9 @@ export class GraphDB {
    * Авто-создать слабые связи на основе пересечения сущностей.
    * similar_to если Jaccard ≥ 0.25, иначе shares_topic.
    */
-  autoConnectByEntities(docId: string): Connection[] {
-    const similar = this.findSimilarByEntities(docId, { topN: 10, minJaccard: 0.1 });
+  autoConnectByEntities(docId: string, opts: { topN?: number; minJaccard?: number } = {}): Connection[] {
+    const { topN = 10, minJaccard = 0.1 } = opts;
+    const similar = this.findSimilarByEntities(docId, { topN, minJaccard });
     const created: Connection[] = [];
 
     for (const s of similar) {
