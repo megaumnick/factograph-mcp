@@ -1,0 +1,31 @@
+{
+  "name": "factograph-mcp",
+  "version": "3.0.0",
+  "description": "MCP-фактограф: граф знаний с типизированными связями, фактами, файловым вводом и AI-обогащением (Ollama/Anthropic)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": { "factograph-mcp": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev":   "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk":  "^1.0.4",
+    "better-sqlite3":             "^9.4.3",
+    "uuid":                       "^9.0.1",
+    "dotenv":                     "^16.4.5"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "pdf-parse":         "^1.1.1",
+    "mammoth":           "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node":           "^22.0.0",
+    "@types/uuid":           "^9.0.7",
+    "tsx":                   "^4.7.1",
+    "typescript":            "^5.4.2"
+  }
+}
