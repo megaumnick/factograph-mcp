@@ -9,6 +9,11 @@
 export const OLLAMA_HOST  = process.env.OLLAMA_HOST  ?? 'http://localhost:11434';
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen3:14b';
 
+// 10 минут по умолчанию — на слабой/переполненной VRAM генерация может идти
+// 4-5 ток/сек, и JSON-ответ на 500-800 токенов легко не укладывается в 2 минуты.
+// Переопределяется через .env без пересборки: OLLAMA_TIMEOUT_MS=900000
+const DEFAULT_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS) || 600_000;
+
 export interface OllamaMessage {
   role:    'system' | 'user' | 'assistant';
   content: string;
@@ -35,7 +40,7 @@ interface OllamaChatOpts {
    * Для синтеза/анализа можно включить (think: true).
    */
   think?:       boolean;
-  /** Таймаут в мс (по умолчанию 2 минуты — 14B модель медленная) */
+  /** Таймаут в мс (по умолчанию 10 минут — см. OLLAMA_TIMEOUT_MS в .env) */
   timeoutMs?:   number;
 }
 
@@ -50,7 +55,7 @@ export async function ollamaChat(
     temperature = 0.1,
     numCtx      = 8192,
     think       = false,
-    timeoutMs   = 120_000,
+    timeoutMs   = DEFAULT_TIMEOUT_MS,
   } = opts;
 
   // Qwen3: добавляем /no_think в последнее сообщение пользователя

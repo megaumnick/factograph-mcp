@@ -20,11 +20,11 @@ import type { Connection, Fact, Relation, EnrichmentResult } from './graph-types
 const USE_OLLAMA    = Boolean(process.env.OLLAMA_HOST);
 const USE_ANTHROPIC = Boolean(process.env.ANTHROPIC_API_KEY);
 
-async function callLLM(system: string, user: string): Promise<string> {
+async function callLLM(system: string, user: string, numCtx = 8192): Promise<string> {
   if (USE_OLLAMA) {
     return ollamaChat(
       [{ role: 'system', content: system }, { role: 'user', content: user }],
-      { json: true, temperature: 0.1, think: false, numCtx: 16_384 }
+      { json: true, temperature: 0.1, think: false, numCtx }
     );
   }
   if (USE_ANTHROPIC) {
@@ -125,7 +125,11 @@ ${docsBlock}
 Только реальные связи. Если связей нет — пустой массив.`;
 
   try {
-    const text   = await callLLM(SYS_CONNECT, prompt);
+    // Малая база (как в типичном auto_link_collection на пару десятков документов) —
+    // 8192 достаточно и оставляет больше VRAM под сами веса модели.
+    // Большая база — растим контекст, чтобы не обрезать список существующих документов.
+    const ctx    = existing.length > 15 ? 16_384 : 8192;
+    const text   = await callLLM(SYS_CONNECT, prompt, ctx);
     const parsed = extractJson<{ connections: any[] }>(text);
     return parsed.connections ?? [];
   } catch {
