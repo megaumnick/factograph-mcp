@@ -25,7 +25,7 @@
 ## Установка на Ubuntu Server
 
 ```bash
-git clone <repo> factograph-mcp   # или просто распакуй архив
+git clone https://github.com/megaumnick/factograph-mcp   # или просто распакуй архив
 cd factograph-mcp
 npm install
 npm run build
